@@ -381,16 +381,31 @@ class TripWindow(tk.Toplevel):
         self._load_catalog()
         self._load_assigned()
 
+    def _get_available_items(self, category=None):
+        """Return catalog items not yet assigned to the selected person."""
+        items = list_items()
+        if category:
+            items = [i for i in items if self.cat_map.get(i[2]) == category]
+        if self.person_id is not None:
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT item_id FROM trip_items WHERE trip_id=? AND person_id=?;",
+                (self.trip_id, self.person_id),
+            )
+            assigned = {row[0] for row in cur.fetchall()}
+            conn.close()
+            items = [i for i in items if i[0] not in assigned]
+        return items
+
     def _load_catalog(self):
         self.items_lb.delete(0, tk.END)
-        for itm in list_items():
+        for itm in self._get_available_items():
             self.items_lb.insert(tk.END, f"{itm[0]}: {itm[1]}")
 
     def _apply_filters(self):
-        cat = self.cat_cb.get()
-        items = list_items()
-        if cat:
-            items = [i for i in items if self.cat_map.get(i[2]) == cat]
+        cat = self.cat_cb.get() or None
+        items = self._get_available_items(cat)
         self.items_lb.delete(0, tk.END)
         for i in items:
             self.items_lb.insert(tk.END, f"{i[0]}: {i[1]}")
@@ -407,7 +422,7 @@ class TripWindow(tk.Toplevel):
         cur = conn.cursor()
         dups = []
         for idx in sel:
-            item_id = int(self.available_lb.get(idx).split(':')[0])
+            item_id = int(self.items_lb.get(idx).split(':')[0])
             assign_item(self.trip_id, self.person_id, item_id, self.qty_var.get())
         conn.close()
         if dups:
@@ -418,7 +433,7 @@ class TripWindow(tk.Toplevel):
                 c2.close()
                 names.append(nm)
             messagebox.showwarning("Duplicados", f"Los siguientes ítems ya estaban asignados: {', '.join(names)}")
-        self._load_available_items()
+        self._load_catalog()
         self._load_assigned()
 
     def _load_assigned(self):
