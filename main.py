@@ -67,9 +67,38 @@ class PackingApp(tk.Tk):
             return
         trip_id = int(self.trips_lb.get(sel[0]).split(':')[0])
         trip = get_trip(trip_id)
-        if trip:
-            create_trip(f"{trip[1]} (copia)")
-            self._load_trips()
+        if not trip:
+            return
+
+        # Ask for the new trip name, suggesting "(copia)"
+        default = f"{trip[1]} (copia)"
+        new_name = simpledialog.askstring(
+            "Clonar viaje", "Nombre para el nuevo viaje:", initialvalue=default
+        )
+        if not new_name:
+            return
+
+        new_trip_id = create_trip(new_name)
+
+        # Clone persons
+        conn = get_connection()
+        cur = conn.cursor()
+        person_map = {}
+        for pid, name in cur.execute(
+            "SELECT id, name FROM persons WHERE trip_id=?;", (trip_id,)
+        ):
+            new_pid = create_person(new_trip_id, name)
+            person_map[pid] = new_pid
+
+        # Clone item assignments
+        for pid, item_id, qty in cur.execute(
+            "SELECT person_id, item_id, quantity FROM trip_items WHERE trip_id=?;",
+            (trip_id,)
+        ):
+            assign_item(new_trip_id, person_map[pid], item_id, qty)
+
+        conn.close()
+        self._load_trips()
 
     def _open_trip(self):
         sel = self.trips_lb.curselection()
