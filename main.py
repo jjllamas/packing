@@ -407,7 +407,7 @@ class TripWindow(tk.Toplevel):
         cur = conn.cursor()
         dups = []
         for idx in sel:
-            item_id = int(self.available_lb.get(idx).split(':')[0])
+            item_id = int(self.items_lb.get(idx).split(':')[0])
             assign_item(self.trip_id, self.person_id, item_id, self.qty_var.get())
         conn.close()
         if dups:
@@ -418,7 +418,7 @@ class TripWindow(tk.Toplevel):
                 c2.close()
                 names.append(nm)
             messagebox.showwarning("Duplicados", f"Los siguientes ítems ya estaban asignados: {', '.join(names)}")
-        self._load_available_items()
+        self._load_catalog()
         self._load_assigned()
 
     def _load_assigned(self):
