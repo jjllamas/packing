@@ -441,7 +441,11 @@ class TripWindow(tk.Toplevel):
         self._load_assigned()
 
     def _load_assigned(self):
+        # Remember which categories are currently expanded
+        open_cats = []
         for c in self.assigned_tv.get_children():
+            if self.assigned_tv.item(c, 'open'):
+                open_cats.append(self.assigned_tv.item(c, 'text'))
             self.assigned_tv.delete(c)
         conn = get_connection()
         data = conn.execute(
@@ -459,7 +463,7 @@ class TripWindow(tk.Toplevel):
         for tid, name, cat, qty in data:
             grouped.setdefault(cat, []).append((tid, name, qty))
         for cat, items in grouped.items():
-            parent = self.assigned_tv.insert('', 'end', text=cat)
+            parent = self.assigned_tv.insert('', 'end', iid=f"cat_{cat}", text=cat, open=(cat in open_cats))
             for tid, name, qty in items:
                 self.assigned_tv.insert(parent, 'end', iid=str(tid), text=f"{name} x{qty}")
 
