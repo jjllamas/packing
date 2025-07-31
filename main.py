@@ -80,24 +80,26 @@ class PackingApp(tk.Tk):
 
         new_trip_id = create_trip(new_name)
 
-        # Clone persons
+        # Fetch persons and assignments first to avoid DB locks
         conn = get_connection()
         cur = conn.cursor()
-        person_map = {}
-        for pid, name in cur.execute(
+        persons = cur.execute(
             "SELECT id, name FROM persons WHERE trip_id=?;", (trip_id,)
-        ):
+        ).fetchall()
+        assignments = cur.execute(
+            "SELECT person_id, item_id, quantity FROM trip_items WHERE trip_id=?;",
+            (trip_id,)
+        ).fetchall()
+        conn.close()
+
+        person_map = {}
+        for pid, name in persons:
             new_pid = create_person(new_trip_id, name)
             person_map[pid] = new_pid
 
-        # Clone item assignments
-        for pid, item_id, qty in cur.execute(
-            "SELECT person_id, item_id, quantity FROM trip_items WHERE trip_id=?;",
-            (trip_id,)
-        ):
+        for pid, item_id, qty in assignments:
             assign_item(new_trip_id, person_map[pid], item_id, qty)
 
-        conn.close()
         self._load_trips()
 
     def _open_trip(self):
