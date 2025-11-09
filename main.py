@@ -67,9 +67,40 @@ class PackingApp(tk.Tk):
             return
         trip_id = int(self.trips_lb.get(sel[0]).split(':')[0])
         trip = get_trip(trip_id)
-        if trip:
-            create_trip(f"{trip[1]} (copia)")
-            self._load_trips()
+        if not trip:
+            return
+
+        # Ask for the new trip name, suggesting "(copia)"
+        default = f"{trip[1]} (copia)"
+        new_name = simpledialog.askstring(
+            "Clonar viaje", "Nombre para el nuevo viaje:", initialvalue=default
+        )
+        if not new_name:
+            return
+
+        new_trip_id = create_trip(new_name)
+
+        # Fetch persons and assignments first to avoid DB locks
+        conn = get_connection()
+        cur = conn.cursor()
+        persons = cur.execute(
+            "SELECT id, name FROM persons WHERE trip_id=?;", (trip_id,)
+        ).fetchall()
+        assignments = cur.execute(
+            "SELECT person_id, item_id, quantity FROM trip_items WHERE trip_id=?;",
+            (trip_id,)
+        ).fetchall()
+        conn.close()
+
+        person_map = {}
+        for pid, name in persons:
+            new_pid = create_person(new_trip_id, name)
+            person_map[pid] = new_pid
+
+        for pid, item_id, qty in assignments:
+            assign_item(new_trip_id, person_map[pid], item_id, qty)
+
+        self._load_trips()
 
     def _open_trip(self):
         sel = self.trips_lb.curselection()
@@ -381,16 +412,31 @@ class TripWindow(tk.Toplevel):
         self._load_catalog()
         self._load_assigned()
 
+    def _get_available_items(self, category=None):
+        """Return catalog items not yet assigned to the selected person."""
+        items = list_items()
+        if category:
+            items = [i for i in items if self.cat_map.get(i[2]) == category]
+        if self.person_id is not None:
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT item_id FROM trip_items WHERE trip_id=? AND person_id=?;",
+                (self.trip_id, self.person_id),
+            )
+            assigned = {row[0] for row in cur.fetchall()}
+            conn.close()
+            items = [i for i in items if i[0] not in assigned]
+        return items
+
     def _load_catalog(self):
         self.items_lb.delete(0, tk.END)
-        for itm in list_items():
+        for itm in self._get_available_items():
             self.items_lb.insert(tk.END, f"{itm[0]}: {itm[1]}")
 
     def _apply_filters(self):
-        cat = self.cat_cb.get()
-        items = list_items()
-        if cat:
-            items = [i for i in items if self.cat_map.get(i[2]) == cat]
+        cat = self.cat_cb.get() or None
+        items = self._get_available_items(cat)
         self.items_lb.delete(0, tk.END)
         for i in items:
             self.items_lb.insert(tk.END, f"{i[0]}: {i[1]}")
@@ -407,7 +453,7 @@ class TripWindow(tk.Toplevel):
         cur = conn.cursor()
         dups = []
         for idx in sel:
-            item_id = int(self.available_lb.get(idx).split(':')[0])
+            item_id = int(self.items_lb.get(idx).split(':')[0])
             assign_item(self.trip_id, self.person_id, item_id, self.qty_var.get())
         conn.close()
         if dups:
@@ -418,11 +464,19 @@ class TripWindow(tk.Toplevel):
                 c2.close()
                 names.append(nm)
             messagebox.showwarning("Duplicados", f"Los siguientes ítems ya estaban asignados: {', '.join(names)}")
-        self._load_available_items()
+        # Refresh available items but keep current filter
+        if self.cat_cb.get():
+            self._apply_filters()
+        else:
+            self._load_catalog()
         self._load_assigned()
 
     def _load_assigned(self):
+        # Remember which categories are currently expanded
+        open_cats = []
         for c in self.assigned_tv.get_children():
+            if self.assigned_tv.item(c, 'open'):
+                open_cats.append(self.assigned_tv.item(c, 'text'))
             self.assigned_tv.delete(c)
         conn = get_connection()
         data = conn.execute(
@@ -440,7 +494,7 @@ class TripWindow(tk.Toplevel):
         for tid, name, cat, qty in data:
             grouped.setdefault(cat, []).append((tid, name, qty))
         for cat, items in grouped.items():
-            parent = self.assigned_tv.insert('', 'end', text=cat)
+            parent = self.assigned_tv.insert('', 'end', iid=f"cat_{cat}", text=cat, open=(cat in open_cats))
             for tid, name, qty in items:
                 self.assigned_tv.insert(parent, 'end', iid=str(tid), text=f"{name} x{qty}")
 
